@@ -1,4 +1,4 @@
-/* DocuLens - client-side document scanner */
+/* VAYTES DOCUMENT SCANNER - client-side document scanner */
 const $ = (s)=>document.querySelector(s);
 const state={pages:[],stream:null,pending:null};
 
@@ -68,7 +68,8 @@ function enhance(mat,mode){
   cv.filter2D(out,sharp,cv.CV_8U,kernel); kernel.delete();out.delete();gray.delete();return sharp;
 }
 function processImage(img,cb){
-  if(typeof cv==="undefined" || !cv.Mat){toast("Mesin scanner belum siap. Coba lagi.");return}
+  if(typeof cv==="undefined" || !cv.Mat){toast("Scanner sedang menyiapkan mesin pemrosesan. Tunggu sebentar lalu coba lagi.");return}
+  if(!cv.Mat){toast("Mesin pemrosesan gambar belum siap.");return}
   const c=document.createElement("canvas");c.width=img.naturalWidth||img.width;c.height=img.naturalHeight||img.height;
   c.getContext("2d").drawImage(img,0,0,c.width,c.height);
   let src=cv.imread(c), pts=null;
@@ -134,7 +135,7 @@ function exportPDF(){
     const x=(pw-w)/2,y=(ph-h)/2;
     pdf.addImage(p.canvas.toDataURL("image/jpeg",.95),"JPEG",x,y,w,h,undefined,"FAST");
   });
-  const stamp=new Date().toISOString().slice(0,10);pdf.save(`DocuLens-${stamp}.pdf`);toast("PDF berhasil dibuat.");
+  const stamp=new Date().toISOString().slice(0,10);pdf.save(`VAYTES-Document-Scanner-${stamp}.pdf`);toast("PDF berhasil dibuat.");
 }
 window.addEventListener("DOMContentLoaded",()=>{
   $("#startBtn").onclick=startCamera;$("#emptyStartBtn").onclick=startCamera;$("#addBtn").onclick=startCamera;
@@ -146,5 +147,24 @@ window.addEventListener("DOMContentLoaded",()=>{
   $("#fileInput").onchange=e=>handleFiles(e.target.files);
   $("#pdfBtn").onclick=exportPDF;
   $("#workspace").addEventListener("click",e=>{});
-  const check=()=>{if(window.cv&&cv.Mat){$("#engineStatus").textContent="Scanner siap";}else setTimeout(check,500)};check();
+  const setStatus=(text,ok=false)=>{
+    $("#engineStatus").textContent=text;
+    const dot=document.querySelector(".status-dot");
+    dot.style.background=ok?"#12b76a":"#f79009";
+    dot.style.boxShadow=ok?"0 0 0 4px #12b76a15":"0 0 0 4px #f7900915";
+  };
+  const waitForOpenCV=()=>{
+    if(window.cv && cv.Mat){
+      setStatus("Scanner siap",true);
+      return;
+    }
+    if(window.__opencvFailed){
+      setStatus("Mesin scanner gagal dimuat",false);
+      toast("Gagal memuat mesin scanner. Pastikan perangkat terhubung ke internet.");
+      return;
+    }
+    setStatus("Menyiapkan scanner…",false);
+    setTimeout(waitForOpenCV,250);
+  };
+  waitForOpenCV();
 });

@@ -1,4 +1,4 @@
-# DocuLens — Smart Document Scanner
+# VAYTES DOCUMENT SCANNER
 
 Client-side document scanner for mobile and desktop. Designed for GitHub Pages.
 
@@ -36,4 +36,4 @@ For best results:
 - Place the page on a flat, contrasting surface.
 - Use even lighting and avoid strong shadows.
 - Keep the entire paper inside the camera view.
-- Hold the iPhone parallel to the document where possible.
+- Hold the perangkat parallel to the document where possible.

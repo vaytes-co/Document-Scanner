@@ -1,39 +1,29 @@
-# VAYTES DOCUMENT SCANNER
+# VAYTES DOCUMENT SCANNER v1.2
 
-Client-side document scanner for mobile and desktop. Designed for GitHub Pages.
+A client-side document scanner designed for phones, tablets, and desktop browsers. No backend or document storage is required.
 
-## Features
-- Camera capture using rear camera on supported devices
-- Automatic document-edge detection
-- Perspective correction / deskew
-- Enhancement: Document, Clean, B&W, Original
-- A4, A5, Letter, Legal, Original paper sizes
-- Multi-page document
-- Reorder and delete pages
-- Client-side PDF export
-- No backend, database, login, or document upload
+## What changed in v1.2
+- Live document-edge detection with a green outline while aiming the camera.
+- Uses outer contours to avoid accidentally detecting text boxes as the paper.
+- Conservative perspective correction: if a document cannot be detected confidently, the full photo is kept instead of aggressively cropping it.
+- Adds a small white safety border after perspective correction so content near the edge is not cut.
+- Normalizes every processed page to the selected paper size with consistent margins and straight orientation.
+- Preview now displays the actual processed result before acceptance.
+- Enhancement modes now affect both preview and exported PDF.
+- Changing paper size / enhancement / detection mode reprocesses existing pages.
+- Multi-page PDF export uses the processed pages, not the original camera photos.
 
-## Run locally
-Because camera APIs require a secure context, use a local HTTP server instead of opening `index.html` with `file://`.
-
-Examples:
-- VS Code Live Server
-- `python -m http.server 5500`
-
-Then open `http://localhost:5500`.
+## Best scanning practice
+1. Put the paper on a contrasting, flat surface.
+2. Use even lighting and avoid hard shadows.
+3. Keep all four corners visible.
+4. Hold the camera as parallel to the paper as possible.
+5. Wait for the green outline, then capture.
 
 ## GitHub Pages
-1. Create a GitHub repository.
-2. Upload all files/folders in this ZIP.
-3. Settings → Pages → Deploy from branch → `main` / root.
-4. Open the generated `github.io` URL.
-5. Allow camera access.
+Upload the contents of this folder to a GitHub repository and enable Settings → Pages → Deploy from branch → main / root.
 
-## Notes
-The app processes images in the browser. Internet is needed on first load for the OpenCV.js and jsPDF CDN scripts unless those libraries are later vendored into the repository.
+The app uses OpenCV.js and jsPDF from public CDNs, so the first page load requires internet access. Image processing itself happens locally in the browser.
 
-For best results:
-- Place the page on a flat, contrasting surface.
-- Use even lighting and avoid strong shadows.
-- Keep the entire paper inside the camera view.
-- Hold the perangkat parallel to the document where possible.
+## Important limitation
+No browser-only algorithm can recover detail that was never captured by the camera. The goal of this version is to preserve the complete document, correct perspective, standardize page framing, and improve readability without destructive cropping.

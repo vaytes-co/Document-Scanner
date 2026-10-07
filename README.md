@@ -1,31 +1,17 @@
-# VAYTES DOCUMENT SCANNER v2.0
+# VAYTES DOCUMENT SCANNER v3.0
 
-A browser-based document scanner inspired by the workflow of modern mobile scanners.
+A client-side document scanner for GitHub Pages.
 
-## Pipeline
-1. Rear-camera capture
-2. Live document-edge detection overlay
-3. Four-corner perspective correction
-4. Conservative safe margin (prevents content clipping)
-5. Illumination normalization / local contrast
-6. Smart / Color / Grayscale / B&W / Original modes
-7. Paper-size normalization without cropping
-8. Preview of the actual processed result
-9. Multi-page ordering
-10. Client-side PDF export
+### v3 fixes
+- Portrait rear-camera preview (3:4)
+- OpenCV readiness timeout; no endless "loading scanner"
+- Live green four-corner document detection
+- Manual capture fallback
+- Conservative perspective correction and safe margins
+- Smart/Color/Gray/B&W/Original processing
+- Processed preview is the same image exported to PDF
+- A4/A5/Letter/Legal/Original
+- Multi-page, reorder and delete
+- No backend or document upload
 
-## Deploy
-Upload the repository contents to GitHub and enable GitHub Pages from the main branch / root.
-
-Camera access requires HTTPS or localhost.
-
-## Privacy / cost
-No backend, database, login, or upload endpoint is used. Images are processed in the browser.
-
-OpenCV.js and jsPDF are loaded from public CDNs. If you want the repository to work completely offline, vendor those libraries into the repository later.
-
-## Important
-This is a browser implementation, so image quality is constrained by the camera image supplied by the device/browser. The pipeline deliberately avoids aggressive enlargement/cropping because that can destroy document content.
-
-## Scanner behavior
-The live camera uses a contour-based document detector to draw a four-corner guide. Capture processing uses the detected quadrilateral, perspective correction, conservative margins, illumination normalization, CLAHE/local contrast, sharpening, grayscale/adaptive B&W, and non-cropping paper normalization. The preview is rendered from the processed image that is later exported to PDF.
+Camera requires HTTPS or localhost. OpenCV.js and jsPDF are loaded from public CDNs.

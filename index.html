@@ -14,7 +14,7 @@
 <div class="app">
 <header class="topbar">
   <a class="brand" href="#"><span class="brand-logo">V</span><span><b>VAYTES</b><small>DOCUMENT SCANNER</small></span></a>
-  <div class="engine"><i id="engineDot"></i><span id="engineText">Memuat scanner…</span></div>
+  <div class="engine" id="engine"><i id="engineDot"></i><span id="engineText">Scanner siap</span></div>
 </header>
 
 <main>
@@ -73,9 +73,11 @@
     <video id="video" autoplay playsinline muted></video>
     <canvas id="edgeCanvas"></canvas>
     <div class="reticle" id="reticle"><b></b><b></b><b></b><b></b></div>
-    <div class="scan-message" id="scanMessage">Arahkan kamera ke seluruh halaman</div>
+    <div class="scan-message" id="scanMessage">Arahkan kamera tegak lurus ke kertas</div>
+    <div class="orientation" id="orientation">PORTRAIT</div>
   </div>
-  <div class="camera-bottom"><div class="capture-hint"><i id="edgeDot"></i><span id="edgeText">Mencari dokumen…</span></div><button class="shutter" id="shutter"><span></span></button><div class="flip">AUTO<br>EDGE</div></div>
+  <div class="camera-bottom">
+<div class="capture-hint"><i id="edgeDot"></i><span id="edgeText">Mencari dokumen…</span></div><button class="shutter" id="shutter"><span></span></button><div class="flip"><button id="manualCapture" type="button">AMBIL MANUAL</button><small>EDGE DETECT</small></div></div>
  </div>
 </div>
 
@@ -89,10 +91,11 @@
     </div></div>
     <div class="toolgroup"><span>Page</span><div class="seg"><button id="rotateLeft">↶</button><button id="rotateRight">↷</button><button id="reDetect">⌗ Re-detect</button></div></div>
   </div>
-  <div class="edit-bottom"><button class="btn secondary" id="retake">Ambil ulang</button><button class="btn primary" id="usePage">✓ Gunakan halaman</button></div>
+  <div class="edit-bottom"><span class="quality-note">Preview = hasil scan yang akan masuk PDF</span><button class="btn secondary" id="retake">Ambil ulang</button><button class="btn primary" id="usePage">✓ Gunakan halaman</button></div>
  </div>
 </div>
 
+<div class="loading-overlay" id="loadingOverlay"><div class="loader-ring"></div><b id="loadingText">Menyiapkan scanner…</b><small>Vision engine sedang dimuat</small></div>
 <div class="toast" id="toast"></div>
 <script src="js/app.js"></script>
 </body>

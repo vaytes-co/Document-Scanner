@@ -1,119 +1,99 @@
 <!doctype html>
 <html lang="id">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0b1220">
-  <meta name="description" content="Fast, private, client-side document scanner.">
-  <title>VAYTES DOCUMENT SCANNER</title>
-  <link rel="stylesheet" href="css/style.css">
-  <script async src="https://docs.opencv.org/4.x/opencv.js" onload="window.__opencvLoaded=true" onerror="window.__opencvFailed=true"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" defer></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b1020">
+<meta name="description" content="VAYTES Document Scanner — smart document capture and enhancement.">
+<title>VAYTES DOCUMENT SCANNER</title>
+<link rel="stylesheet" href="css/style.css">
+<script async src="https://docs.opencv.org/4.10.0/opencv.js" id="opencv"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
 </head>
 <body>
-  <div class="app-shell">
-    <header class="topbar">
-      <a class="brand" href="#" aria-label="VAYTES DOCUMENT SCANNER home">
-        <span class="brand-mark">D</span>
-        <span><strong>VAYTES</strong><small>DOCUMENT SCANNER</small></span>
-      </a>
-      <div class="top-status"><span class="status-dot"></span><span id="engineStatus">Menyiapkan scanner…</span></div>
-    </header>
+<div class="app">
+<header class="topbar">
+  <a class="brand" href="#"><span class="brand-logo">V</span><span><b>VAYTES</b><small>DOCUMENT SCANNER</small></span></a>
+  <div class="engine"><i id="engineDot"></i><span id="engineText">Memuat scanner…</span></div>
+</header>
 
-    <main>
-      <section class="hero">
-        <div class="eyebrow">PRIVATE · FAST · CLIENT-SIDE</div>
-        <h1>Ubah perangkatmu<br><em>jadi scanner.</em></h1>
-        <p>Rapikan dokumen, luruskan perspektif, tingkatkan kejernihan, lalu ekspor PDF — langsung di perangkatmu.</p>
-        <div class="hero-actions">
-          <button class="primary-btn" id="startBtn">📷 Mulai Scan</button>
-          <label class="secondary-btn">＋ Pilih Foto <input id="fileInput" type="file" accept="image/*" multiple hidden></label>
-        </div>
-        <div class="trust-row">
-          <span>🔒 Foto tidak di-upload</span><span>⚡ Proses di browser</span><span>💸 Gratis</span>
-        </div>
-      </section>
+<main>
+<section class="hero">
+  <div class="pill">SMART DOCUMENT SCANNING</div>
+  <h1>Scan seperti <span>dokumen asli.</span></h1>
+  <p>Deteksi kertas secara otomatis, luruskan perspektif, bersihkan background, tingkatkan keterbacaan, dan buat PDF berkualitas tinggi.</p>
+  <div class="hero-buttons">
+    <button class="btn primary" id="startBtn">⌗ Mulai Scan</button>
+    <label class="btn secondary">＋ Pilih dari Galeri<input id="fileInput" type="file" accept="image/*" multiple hidden></label>
+  </div>
+  <div class="badges"><span>🔒 Diproses di perangkat</span><span>⚡ Tanpa upload</span><span>💸 Gratis</span></div>
+</section>
 
-      <section class="workspace" id="workspace">
-        <div class="workspace-head">
-          <div>
-            <span class="section-kicker">WORKSPACE</span>
-            <h2>Dokumen kamu</h2>
-          </div>
-          <div class="toolbar">
-            <button class="ghost-btn" id="addBtn">＋ Tambah halaman</button>
-            <button class="primary-small" id="pdfBtn" disabled>Export PDF</button>
-          </div>
-        </div>
-
-        <div class="settings-card">
-          <div class="setting">
-            <label>Ukuran kertas</label>
-            <select id="paperSize">
-              <option value="a4">A4</option><option value="a5">A5</option>
-              <option value="letter">Letter</option><option value="legal">Legal</option>
-              <option value="original">Ukuran foto asli</option>
-            </select>
-          </div>
-          <div class="setting">
-            <label>Enhancement</label>
-            <select id="enhanceMode">
-              <option value="document">Document — tajam & bersih</option>
-              <option value="clean">Clean — putih & natural</option>
-              <option value="bw">B&W — kontras tinggi</option>
-              <option value="original">Original — tanpa enhancement</option>
-            </select>
-          </div>
-          <div class="setting">
-            <label>Deteksi dokumen</label>
-            <select id="detectMode">
-              <option value="auto">Auto — rekomendasi</option>
-              <option value="manual">Manual crop</option>
-              <option value="full">Gunakan seluruh foto</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="empty-state" id="emptyState">
-          <div class="empty-icon">✦</div>
-          <h3>Belum ada halaman</h3>
-          <p>Ambil foto dokumen atau pilih foto dari galeri untuk mulai.</p>
-          <button class="primary-btn" id="emptyStartBtn">📷 Scan halaman pertama</button>
-        </div>
-
-        <div class="pages-grid" id="pagesGrid"></div>
-      </section>
-    </main>
-
-    <footer>
-      <span>VAYTES DOCUMENT SCANNER v1.2</span>
-      <span>Built for private document scanning</span>
-    </footer>
+<section class="studio" id="studio">
+  <div class="studio-top">
+    <div><small class="kicker">SCAN STUDIO</small><h2>Dokumen baru</h2></div>
+    <div class="actions"><button class="btn mini" id="addBtn">＋ Halaman</button><button class="btn mini primary" id="pdfBtn" disabled>Export PDF</button></div>
   </div>
 
-  <div class="modal" id="cameraModal" aria-hidden="true">
-    <div class="modal-panel camera-panel">
-      <div class="modal-head"><div><span class="section-kicker">CAMERA</span><h2>Posisikan dokumen</h2></div><button class="close-btn" id="closeCamera">×</button></div>
-      <div class="camera-wrap">
-        <video id="camera" autoplay playsinline muted></video>
-        <canvas id="edgeOverlay" class="edge-overlay"></canvas>
-        <div class="scan-frame"><span></span><span></span><span></span><span></span></div>
-        <div class="camera-tip">Pastikan seluruh sudut kertas terlihat • gunakan cahaya merata</div>
-      </div>
-      <div class="camera-controls"><button class="shutter" id="captureBtn" aria-label="Ambil foto"><span></span></button></div>
-    </div>
+  <div class="controlbar">
+    <label>Ukuran
+      <select id="paper"><option value="a4">A4</option><option value="a5">A5</option><option value="letter">Letter</option><option value="legal">Legal</option><option value="original">Original</option></select>
+    </label>
+    <label>Mode scan
+      <select id="filter">
+        <option value="auto">✨ Smart Scan</option>
+        <option value="color">Color</option>
+        <option value="gray">Grayscale</option>
+        <option value="bw">B&W Crisp</option>
+        <option value="photo">Original</option>
+      </select>
+    </label>
+    <label>Quality
+      <select id="quality"><option value="high">High</option><option value="max">Maximum</option><option value="standard">Standard</option></select>
+    </label>
   </div>
 
-  <div class="modal" id="previewModal" aria-hidden="true">
-    <div class="modal-panel preview-panel">
-      <div class="modal-head"><div><span class="section-kicker">PREVIEW</span><h2>Periksa hasil scan</h2></div><button class="close-btn" id="closePreview">×</button></div>
-      <div class="preview-area"><canvas id="previewCanvas"></canvas></div>
-      <div class="preview-actions"><button class="secondary-btn" id="retakeBtn">Ambil ulang</button><button class="primary-btn" id="acceptBtn">✓ Gunakan halaman</button></div>
-    </div>
+  <div class="empty" id="empty">
+    <div class="empty-art"><span>▱</span><i></i><i></i><i></i><i></i></div>
+    <h3>Siap mendigitalkan dokumen</h3>
+    <p>Gunakan kamera untuk deteksi tepi otomatis atau pilih foto yang sudah ada.</p>
+    <button class="btn primary" id="emptyScan">⌗ Scan halaman</button>
   </div>
+  <div class="pages" id="pages"></div>
+</section>
+</main>
 
-  <div class="toast" id="toast"></div>
-  <canvas id="workCanvas" hidden></canvas>
-  <script src="js/app.js"></script>
+<footer><span>VAYTES DOCUMENT SCANNER</span><span>Client-side • No cloud upload</span></footer>
+</div>
+
+<div class="modal" id="cameraModal">
+ <div class="camera-sheet">
+  <div class="modal-head"><div><small class="kicker">LIVE SCAN</small><h2>Temukan batas kertas</h2></div><button class="x" id="closeCam">×</button></div>
+  <div class="viewfinder">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="edgeCanvas"></canvas>
+    <div class="reticle" id="reticle"><b></b><b></b><b></b><b></b></div>
+    <div class="scan-message" id="scanMessage">Arahkan kamera ke seluruh halaman</div>
+  </div>
+  <div class="camera-bottom"><div class="capture-hint"><i id="edgeDot"></i><span id="edgeText">Mencari dokumen…</span></div><button class="shutter" id="shutter"><span></span></button><div class="flip">AUTO<br>EDGE</div></div>
+ </div>
+</div>
+
+<div class="modal" id="editModal">
+ <div class="edit-sheet">
+  <div class="modal-head"><div><small class="kicker">SCAN RESULT</small><h2>Hasil scan</h2></div><button class="x" id="closeEdit">×</button></div>
+  <div class="edit-preview"><canvas id="editCanvas"></canvas></div>
+  <div class="edit-tools">
+    <div class="toolgroup"><span>Enhancement</span><div class="seg" id="filterButtons">
+      <button data-f="auto" class="active">Smart</button><button data-f="color">Color</button><button data-f="gray">Gray</button><button data-f="bw">B&W</button><button data-f="photo">Original</button>
+    </div></div>
+    <div class="toolgroup"><span>Page</span><div class="seg"><button id="rotateLeft">↶</button><button id="rotateRight">↷</button><button id="reDetect">⌗ Re-detect</button></div></div>
+  </div>
+  <div class="edit-bottom"><button class="btn secondary" id="retake">Ambil ulang</button><button class="btn primary" id="usePage">✓ Gunakan halaman</button></div>
+ </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="js/app.js"></script>
 </body>
 </html>

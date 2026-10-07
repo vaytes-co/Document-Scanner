@@ -1,307 +1,127 @@
-/* VAYTES DOCUMENT SCANNER v1.2
-   Client-side document scanning: live edge detection, perspective correction,
-   consistent paper framing, real enhancement, multi-page PDF export.
+/* VAYTES DOCUMENT SCANNER v2.0
+   Client-side pipeline:
+   capture -> edge detection -> perspective correction -> safe margin -> illumination cleanup -> enhancement -> normalized page -> preview/PDF
 */
-const $ = (s) => document.querySelector(s);
-const state = { pages: [], stream: null, pending: null, liveTimer: null, busy: false };
+const $=s=>document.querySelector(s);
+const state={stream:null,raf:null,edgeTimer:null,detected:null,pendingRaw:null,pendingResult:null,pages:[],rotation:0};
 
-const toast = (msg) => {
-  const t = $("#toast"); t.textContent = msg; t.classList.add("show");
-  clearTimeout(window.__toast); window.__toast = setTimeout(() => t.classList.remove("show"), 2600);
-};
-const openModal = (el) => { el.classList.add("open"); el.setAttribute("aria-hidden", "false"); };
-const closeModal = (el) => { el.classList.remove("open"); el.setAttribute("aria-hidden", "true"); };
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-
-function cvReady() { return window.cv && typeof cv.Mat === "function" && typeof cv.imread === "function"; }
-function setEngineStatus(text, ok = false) {
-  const el = $("#engineStatus"), dot = document.querySelector(".status-dot");
-  el.textContent = text;
-  dot.style.background = ok ? "#12b76a" : "#f79009";
-  dot.style.boxShadow = ok ? "0 0 0 4px #12b76a15" : "0 0 0 4px #f7900915";
+function toast(m){const e=$("#toast");e.textContent=m;e.classList.add("show");clearTimeout(window.__t);window.__t=setTimeout(()=>e.classList.remove("show"),2600)}
+function open(id){$(id).classList.add("open")}
+function close(id){$(id).classList.remove("open")}
+function cvReady(){return window.cv&&cv.Mat&&typeof cv.imread==="function"}
+function setEngine(ready,msg){$("#engineText").textContent=msg;$("#engineDot").parentElement.classList.toggle("ready",ready)}
+function matCanvas(mat){const c=document.createElement("canvas");c.width=mat.cols;c.height=mat.rows;cv.imshow(c,mat);return c}
+function loadImage(file){return new Promise((res,rej)=>{const u=URL.createObjectURL(file),im=new Image();im.onload=()=>{URL.revokeObjectURL(u);res(im)};im.onerror=rej;im.src=u})}
+function canvasFromImage(im,max=2600){const scale=Math.min(1,max/Math.max(im.naturalWidth||im.width,im.naturalHeight||im.height));const c=document.createElement("canvas");c.width=Math.round((im.naturalWidth||im.width)*scale);c.height=Math.round((im.naturalHeight||im.height)*scale);c.getContext("2d",{willReadFrequently:true}).drawImage(im,0,0,c.width,c.height);return c}
+function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
+function order(pts){const tl=pts.reduce((a,p)=>p.x+p.y<a.x+a.y?p:a),br=pts.reduce((a,p)=>p.x+p.y>a.x+a.y?p:a);const rest=pts.filter(p=>p!==tl&&p!==br);const tr=rest.reduce((a,p)=>p.y<p.y?a:p); // corrected below
+  rest.sort((a,b)=>a.y-b.y);return [tl,rest[0],br,rest[1]]}
+function detect(src,minimum=.16){
+  let scale=Math.min(1,1100/Math.max(src.cols,src.rows)),s=new cv.Mat();
+  cv.resize(src,s,new cv.Size(Math.round(src.cols*scale),Math.round(src.rows*scale)),0,0,cv.INTER_AREA);
+  let g=new cv.Mat(),b=new cv.Mat(),e=new cv.Mat();cv.cvtColor(s,g,cv.COLOR_RGBA2GRAY);cv.GaussianBlur(g,b,new cv.Size(5,5),0);cv.Canny(b,e,45,150);
+  let k=cv.getStructuringElement(cv.MORPH_RECT,new cv.Size(5,5));cv.morphologyEx(e,e,cv.MORPH_CLOSE,k);
+  let cs=new cv.MatVector(),h=new cv.Mat();cv.findContours(e,cs,h,cv.RETR_LIST,cv.CHAIN_APPROX_SIMPLE);
+  let best=null,bestScore=0,areaImg=s.cols*s.rows;
+  for(let i=0;i<cs.size();i++){let c=cs.get(i),a=Math.abs(cv.contourArea(c));if(a<areaImg*minimum){c.delete();continue}let p=cv.arcLength(c,true),q=new cv.Mat();cv.approxPolyDP(c,q,.018*p,true);
+    if(q.rows===4){let ps=[];for(let j=0;j<4;j++)ps.push({x:q.doubleAt(j,0)/scale,y:q.doubleAt(j,1)/scale});let w=Math.max(dist(ps[0],ps[1]),dist(ps[2],ps[3])),hh=Math.max(dist(ps[0],ps[3]),dist(ps[1],ps[2]));let ratio=w/hh,rect=Math.min(ratio,1/ratio),score=a*(.65+.35*rect);if(score>bestScore){bestScore=score;best=ps} }q.delete();c.delete()}
+  [s,g,b,e,k,cs,h].forEach(x=>x&&x.delete&&x.delete());return best?order(best):null
 }
-async function waitForOpenCV() {
-  for (let i = 0; i < 80; i++) {
-    if (cvReady()) { setEngineStatus("Scanner siap", true); return true; }
-    await sleep(250);
-  }
-  setEngineStatus("Mesin scanner gagal dimuat");
-  toast("Mesin pemrosesan belum tersedia. Periksa koneksi internet lalu muat ulang halaman.");
-  return false;
+function drawDetection(pts,video,canvas){
+  const ctx=canvas.getContext("2d");canvas.width=video.videoWidth;canvas.height=video.videoHeight;ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(!pts)return;
+  ctx.lineWidth=Math.max(5,canvas.width/180);ctx.strokeStyle="#20c77a";ctx.fillStyle="#20c77a33";ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.closePath();ctx.fill();ctx.stroke();
+  pts.forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,9,0,Math.PI*2);ctx.fillStyle="#20c77a";ctx.fill()})
 }
-
-function dist(a,b){ return Math.hypot(a.x-b.x,a.y-b.y); }
-function orderPoints(points){
-  const p=[...points];
-  const sum=p.map(v=>v.x+v.y), diff=p.map(v=>v.x-v.y);
-  return [p[sum.indexOf(Math.min(...sum))], p[diff.indexOf(Math.max(...diff))], p[sum.indexOf(Math.max(...sum))], p[diff.indexOf(Math.min(...diff))]];
-}
-
-// Finds the OUTER page contour. RETR_EXTERNAL prevents text boxes/inner rectangles
-// from being mistaken for the document itself.
-function detectDocument(src, opts={}) {
-  const maxDim = opts.maxDim || 1000;
-  const scale = Math.min(1, maxDim / Math.max(src.cols, src.rows));
-  let small=new cv.Mat(), gray=new cv.Mat(), blur=new cv.Mat(), edges=new cv.Mat();
-  let contours=new cv.MatVector(), hierarchy=new cv.Mat();
-  cv.resize(src, small, new cv.Size(Math.max(1,Math.round(src.cols*scale)),Math.max(1,Math.round(src.rows*scale))),0,0,cv.INTER_AREA);
-  cv.cvtColor(small,gray,cv.COLOR_RGBA2GRAY);
-  cv.GaussianBlur(gray,blur,new cv.Size(5,5),0);
-  cv.Canny(blur,edges,45,150);
-  // Close small gaps around the paper edge.
-  const kernel=cv.getStructuringElement(cv.MORPH_RECT,new cv.Size(5,5));
-  cv.morphologyEx(edges,edges,cv.MORPH_CLOSE,kernel);
-  cv.findContours(edges,contours,hierarchy,cv.RETR_EXTERNAL,cv.CHAIN_APPROX_SIMPLE);
-
-  const imageArea=small.cols*small.rows;
-  let best=null,bestScore=0;
-  for(let i=0;i<contours.size();i++){
-    const cnt=contours.get(i), area=cv.contourArea(cnt);
-    if(area < imageArea*0.20){ cnt.delete(); continue; }
-    const peri=cv.arcLength(cnt,true), approx=new cv.Mat();
-    cv.approxPolyDP(cnt,approx,0.025*peri,true);
-    if(approx.rows===4){
-      const a=[]; for(let j=0;j<4;j++) a.push({x:approx.intAt(j,0)/scale,y:approx.intAt(j,1)/scale});
-      const ordered=orderPoints(a);
-      const w=Math.max(dist(ordered[0],ordered[1]),dist(ordered[3],ordered[2]));
-      const h=Math.max(dist(ordered[0],ordered[3]),dist(ordered[1],ordered[2]));
-      const rectangular=Math.min(w,h)/Math.max(w,h);
-      const score=(area/imageArea)*0.82 + rectangular*0.18;
-      if(score>bestScore){ bestScore=score; best=ordered; }
-    }
-    approx.delete();cnt.delete();
-  }
-  [small,gray,blur,edges,contours,hierarchy,kernel].forEach(x=>x&&x.delete&&x.delete());
-  return best;
-}
-
-function warpDocument(src, pts) {
-  const [tl,tr,br,bl]=pts;
-  const w=Math.max(dist(tl,tr),dist(bl,br));
-  const h=Math.max(dist(tl,bl),dist(tr,br));
-  const maxW=2400, scale=Math.min(1,maxW/w);
-  const outW=Math.max(700,Math.round(w*scale)), outH=Math.max(700,Math.round(h*scale));
+function warp(src,pts){
+  let [tl,tr,br,bl]=pts;let W=Math.max(dist(tl,tr),dist(bl,br)),H=Math.max(dist(tl,bl),dist(tr,br));
+  // Never enlarge the source beyond what was captured. This prevents "zoomed" results.
+  const outW=Math.max(700,Math.min(2600,Math.round(W))),outH=Math.max(900,Math.min(3600,Math.round(H)));
   const sp=cv.matFromArray(4,1,cv.CV_32FC2,[tl.x,tl.y,tr.x,tr.y,br.x,br.y,bl.x,bl.y]);
   const dp=cv.matFromArray(4,1,cv.CV_32FC2,[0,0,outW-1,0,outW-1,outH-1,0,outH-1]);
-  const M=cv.getPerspectiveTransform(sp,dp), dst=new cv.Mat();
-  cv.warpPerspective(src,dst,M,new cv.Size(outW,outH),cv.INTER_LANCZOS4,cv.BORDER_CONSTANT,new cv.Scalar(255,255,255,255));
-  M.delete();sp.delete();dp.delete();
-  return dst;
+  const M=cv.getPerspectiveTransform(sp,dp),dst=new cv.Mat();cv.warpPerspective(src,dst,M,new cv.Size(outW,outH),cv.INTER_LANCZOS4,cv.BORDER_REPLICATE);
+  [sp,dp,M].forEach(x=>x.delete());return dst;
 }
-
-function addWhiteBorder(src, ratio=0.035){
-  const padX=Math.max(8,Math.round(src.cols*ratio)), padY=Math.max(8,Math.round(src.rows*ratio));
-  const dst=new cv.Mat();
-  cv.copyMakeBorder(src,dst,padY,padY,padX,padX,cv.BORDER_CONSTANT,new cv.Scalar(255,255,255,255));
-  return dst;
+function rotateMat(src,deg){if(!deg)return src.clone();let dst=new cv.Mat();if(deg===90)cv.rotate(src,dst,cv.ROTATE_90_CLOCKWISE);else if(deg===180)cv.rotate(src,dst,cv.ROTATE_180);else cv.rotate(src,dst,cv.ROTATE_90_COUNTERCLOCKWISE);return dst}
+function addSafeMargin(src,ratio=.045){
+  const m=Math.round(Math.min(src.cols,src.rows)*ratio),dst=new cv.Mat();
+  cv.copyMakeBorder(src,dst,m,m,m,m,cv.BORDER_CONSTANT,new cv.Scalar(255,255,255,255));return dst
 }
-
-function enhance(src, mode){
-  if(mode==='original') return src.clone();
-  if(mode==='bw'){
-    let gray=new cv.Mat(), clean=new cv.Mat(), bw=new cv.Mat(), rgba=new cv.Mat();
-    cv.cvtColor(src,gray,cv.COLOR_RGBA2GRAY);
-    cv.GaussianBlur(gray,clean,new cv.Size(3,3),0);
-    cv.adaptiveThreshold(clean,bw,255,cv.ADAPTIVE_THRESH_GAUSSIAN_C,cv.THRESH_BINARY,31,9);
-    cv.cvtColor(bw,rgba,cv.COLOR_GRAY2RGBA);
-    [gray,clean,bw].forEach(x=>x.delete()); return rgba;
+function enhance(src,mode){
+  if(mode==="photo")return src.clone();
+  let bgr=new cv.Mat();cv.cvtColor(src,bgr,cv.COLOR_RGBA2RGB);
+  // Illumination normalization: flatten uneven paper lighting without destroying text.
+  let lab=new cv.Mat();cv.cvtColor(bgr,lab,cv.COLOR_RGB2Lab);let ch=new cv.MatVector();cv.split(lab,ch);
+  let clahe=cv.createCLAHE(2.0,new cv.Size(8,8));let L=ch.get(0),L2=new cv.Mat();clahe.apply(L,L2);ch.set(0,L2);
+  let norm=new cv.Mat();cv.merge(ch,lab);cv.cvtColor(lab,norm,cv.COLOR_Lab2RGB);
+  let out=new cv.Mat();
+  if(mode==="gray"){cv.cvtColor(norm,out,cv.COLOR_RGB2GRAY);let rgba=new cv.Mat();cv.cvtColor(out,rgba,cv.COLOR_GRAY2RGBA);[bgr,lab,ch,clahe,L,L2,norm,out].forEach(x=>x&&x.delete&&x.delete());return rgba}
+  if(mode==="bw"){
+    let gr=new cv.Mat();cv.cvtColor(norm,gr,cv.COLOR_RGB2GRAY);cv.GaussianBlur(gr,gr,new cv.Size(3,3),0);cv.adaptiveThreshold(gr,out,255,cv.ADAPTIVE_THRESH_GAUSSIAN_C,cv.THRESH_BINARY,31,9);
+    // Small morphological opening removes isolated camera noise.
+    let kk=cv.getStructuringElement(cv.MORPH_RECT,new cv.Size(2,2));cv.morphologyEx(out,out,cv.MORPH_OPEN,kk);kk.delete();
+    let rgba=new cv.Mat();cv.cvtColor(out,rgba,cv.COLOR_GRAY2RGBA);[bgr,lab,ch,clahe,L,L2,norm,out,gr].forEach(x=>x&&x.delete&&x.delete());return rgba
   }
-  let blur=new cv.Mat(), sharp=new cv.Mat();
-  cv.GaussianBlur(src,blur,new cv.Size(0,0),1.05);
-  // Unsharp mask: visible effect without destroying fine text.
-  cv.addWeighted(src,1.45,blur,-0.45,0,sharp);
-  blur.delete();
-  if(mode==='clean'){
-    const out=new cv.Mat(); cv.convertScaleAbs(sharp,out,1.05,4); sharp.delete(); return out;
-  }
-  const out=new cv.Mat(); cv.convertScaleAbs(sharp,out,1.10,1); sharp.delete(); return out;
+  // Smart/Color: local contrast + conservative unsharp mask.
+  let blur=new cv.Mat();cv.GaussianBlur(norm,blur,new cv.Size(0,0),1.2);cv.addWeighted(norm,1.32,blur,-.32,0,out);
+  let rgba=new cv.Mat();cv.cvtColor(out,rgba,cv.COLOR_RGB2RGBA);[bgr,lab,ch,clahe,L,L2,norm,out,blur].forEach(x=>x&&x.delete&&x.delete());return rgba
 }
-
-function matToCanvas(mat){ const c=document.createElement('canvas'); c.width=mat.cols; c.height=mat.rows; cv.imshow(c,mat); return c; }
-function canvasToMat(canvas){ return cv.imread(canvas); }
-
-function paperConfig(){
-  const key=$("#paperSize").value;
-  return ({a4:[210,297],a5:[148,210],letter:[216,279],legal:[216,356],original:null})[key];
+function normalizePage(src,paper){
+  if(paper==="original")return src.clone();
+  const sizes={a4:[210,297],a5:[148,210],letter:[216,279],legal:[216,356]}, [mmW,mmH]=sizes[paper];
+  const ratio=mmW/mmH,srcRatio=src.cols/src.rows;
+  let W=1600,H=Math.round(W/ratio);
+  if((srcRatio>1&&ratio<1)||(srcRatio<1&&ratio>1)){W=1600;H=Math.round(W/ratio)}
+  // Fit source inside target with white canvas, never crop.
+  const scale=Math.min((W-80)/src.cols,(H-80)/src.rows,1.0);
+  const w=Math.max(1,Math.round(src.cols*scale)),h=Math.max(1,Math.round(src.rows*scale));
+  let resized=new cv.Mat();cv.resize(src,resized,new cv.Size(w,h),0,0,cv.INTER_LANCZOS4);
+  let page=new cv.Mat(H,W,cv.CV_8UC4,new cv.Scalar(255,255,255,255));let x=Math.round((W-w)/2),y=Math.round((H-h)/2);resized.copyTo(page.roi(new cv.Rect(x,y,w,h)));resized.delete();return page
 }
-
-// Normalizes every page to the same physical paper and the same visual margins.
-function normalizePage(mat){
-  const cfg=paperConfig();
-  if(!cfg) return mat.clone();
-  const isLandscape=mat.cols/mat.rows>1.12;
-  const [pw,ph]=isLandscape?[cfg[1],cfg[0]]:cfg;
-  const W=isLandscape?1800:1600;
-  const H=Math.round(W*(ph/pw));
-  const canvas=new cv.Mat(H,W,cv.CV_8UC4,new cv.Scalar(255,255,255,255));
-  const margin=Math.round(W*0.055), maxW=W-margin*2, maxH=H-margin*2;
-  const scale=Math.min(maxW/mat.cols,maxH/mat.rows);
-  const w=Math.max(1,Math.round(mat.cols*scale)),h=Math.max(1,Math.round(mat.rows*scale));
-  const resized=new cv.Mat(); cv.resize(mat,resized,new cv.Size(w,h),0,0,cv.INTER_AREA);
-  const x=Math.round((W-w)/2),y=Math.round((H-h)/2);
-  resized.copyTo(canvas.roi(new cv.Rect(x,y,w,h))); resized.delete();
-  return canvas;
+function processCanvas(c,forcePts=null){
+  let src=cv.imread(c), pts=forcePts||detect(src,.12), warped;
+  if(pts){warped=warp(src,pts)}else{warped=src.clone();toast("Tepi kertas belum yakin terdeteksi — seluruh foto dipertahankan.")}
+  let safe=addSafeMargin(warped,.035), enhanced=enhance(safe,$("#filter").value), normalized=normalizePage(enhanced,$("#paper").value);
+  [src,warped,safe,enhanced].forEach(x=>x.delete());return normalized
 }
-
-function prepareImageCanvas(canvas, forcedPts=null){
-  if(!cvReady()) throw new Error('OpenCV not ready');
-  let src=canvasToMat(canvas), warped=null, padded=null, enhanced=null, normalized=null;
-  try{
-    const mode=$("#detectMode").value;
-    const pts=forcedPts || (mode==='auto' ? detectDocument(src) : null);
-    // If detection fails, keep the ENTIRE photo. Never invent a crop.
-    warped=pts ? warpDocument(src,pts) : src.clone();
-    padded=addWhiteBorder(warped,0.035);
-    enhanced=enhance(padded,$("#enhanceMode").value);
-    normalized=normalizePage(enhanced);
-    return {canvas:matToCanvas(normalized),points:pts};
-  } finally {
-    [src,warped,padded,enhanced,normalized].forEach(x=>x&&x.delete&&x.delete());
-  }
+function matToData(mat){const c=matCanvas(mat);return c}
+function showResult(mat){state.pendingResult=mat.clone();$("#editCanvas").width=mat.cols;$("#editCanvas").height=mat.rows;cv.imshow($("#editCanvas"),mat);open("#editModal")}
+function captureFrame(){
+  const v=$("#video"),c=document.createElement("canvas");c.width=v.videoWidth;c.height=v.videoHeight;c.getContext("2d").drawImage(v,0,0);
+  if(!cvReady()){toast("Scanner masih memuat. Tunggu sampai status READY.");return}
+  try{const src=cv.imread(c),pts=detect(src,.10);src.delete();const result=processCanvas(c,pts);showResult(result);result.delete()}catch(e){console.error(e);toast("Gagal memproses halaman. Coba cahaya lebih merata.");}
 }
-
-function processImageElement(img){
-  return new Promise((resolve,reject)=>{
-    const c=document.createElement('canvas'); c.width=img.naturalWidth||img.width; c.height=img.naturalHeight||img.height;
-    c.getContext('2d').drawImage(img,0,0,c.width,c.height);
-    try{ resolve(prepareImageCanvas(c)); }catch(e){ console.error(e); reject(e); }
-  });
+function startEdgeLoop(){
+  clearTimeout(state.raf);cancelAnimationFrame(state.raf);const v=$("#video"),ec=$("#edgeCanvas");
+  const loop=()=>{if(!$("#cameraModal").classList.contains("open"))return;if(cvReady()&&v.readyState>=2){try{const c=document.createElement("canvas");c.width=v.videoWidth;c.height=v.videoHeight;c.getContext("2d").drawImage(v,0,0);const small=c.width>1200?(()=>{const q=document.createElement("canvas");const sc=1200/c.width;q.width=1200;q.height=Math.round(c.height*sc);q.getContext("2d").drawImage(c,0,0,q.width,q.height);return q})():c;const src=cv.imread(small);let pts=detect(src,.18);if(pts&&small!==c){const sx=c.width/small.width,sy=c.height/small.height;pts=pts.map(p=>({x:p.x*sx,y:p.y*sy}))}src.delete();state.detected=pts;drawDetection(pts,v,ec);$("#reticle").classList.toggle("detected",!!pts);$("#edgeText").textContent=pts?"Dokumen terdeteksi":"Mencari dokumen…";$("#edgeDot").parentElement.classList.toggle("ready",!!pts);$("#scanMessage").textContent=pts?"Tahan sebentar…":"Arahkan kamera ke seluruh halaman"}catch(e){}}state.raf=setTimeout(()=>requestAnimationFrame(loop),120)};loop()
 }
-
-function addPage(rawCanvas){
-  try{
-    const result=prepareImageCanvas(rawCanvas);
-    state.pages.push({raw:rawCanvas,processed:result.canvas,points:result.points});
-    renderPages(); updatePdfState(); toast(`Halaman ${state.pages.length} siap`);
-  }catch(e){console.error(e);toast('Gagal memproses dokumen. Coba foto dengan cahaya lebih rata.');}
+async function openCamera(){
+  if(!navigator.mediaDevices?.getUserMedia){toast("Kamera membutuhkan browser yang mendukung camera API dan HTTPS.");return}
+  try{state.stream?.getTracks().forEach(t=>t.stop());state.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080}},audio:false});$("#video").srcObject=state.stream;open("#cameraModal");await $("#video").play();startEdgeLoop()}catch(e){console.error(e);toast("Kamera tidak dapat dibuka. Periksa izin kamera.");}
 }
-
-function renderPages(){
-  const grid=$("#pagesGrid"),empty=$("#emptyState"); grid.innerHTML=''; empty.style.display=state.pages.length?'none':'block';
-  state.pages.forEach((p,i)=>{
-    const card=document.createElement('article');card.className='page-card';
-    const thumb=document.createElement('div');thumb.className='thumb';
-    const cn=p.processed.cloneNode(true);cn.width=p.processed.width;cn.height=p.processed.height;thumb.appendChild(cn);
-    const no=document.createElement('span');no.className='page-no';no.textContent=`PAGE ${String(i+1).padStart(2,'0')}`;thumb.appendChild(no);
-    const actions=document.createElement('div');actions.className='page-actions';
-    const up=document.createElement('button');up.textContent='↑';up.disabled=i===0;up.onclick=()=>{[state.pages[i-1],state.pages[i]]=[state.pages[i],state.pages[i-1]];renderPages()};
-    const down=document.createElement('button');down.textContent='↓';down.disabled=i===state.pages.length-1;down.onclick=()=>{[state.pages[i+1],state.pages[i]]=[state.pages[i],state.pages[i+1]];renderPages()};
-    const del=document.createElement('button');del.className='remove';del.textContent='Hapus';del.onclick=()=>{state.pages.splice(i,1);renderPages();updatePdfState()};
-    actions.append(up,down,del);card.append(thumb,actions);grid.appendChild(card);
-  });
-}
-function updatePdfState(){ $("#pdfBtn").disabled=!state.pages.length; }
-
-async function reprocessAll(){
-  if(!state.pages.length||state.busy)return;
-  state.busy=true; setEngineStatus('Memproses halaman…');
-  try{
-    for(const p of state.pages){ const keepPoints = $("#detectMode").value === 'auto' ? p.points : null; const result=prepareImageCanvas(p.raw,keepPoints); p.processed=result.canvas; if($("#detectMode").value==='auto') p.points=result.points; }
-    renderPages();
-  }catch(e){console.error(e);toast('Sebagian halaman gagal diproses.');}
-  state.busy=false; setEngineStatus('Scanner siap',true);
-}
-
-function rawCanvasFromVideo(){
-  const video=$("#camera"),c=document.createElement('canvas'); c.width=video.videoWidth;c.height=video.videoHeight;c.getContext('2d').drawImage(video,0,0,c.width,c.height);return c;
-}
-
-function drawLiveOverlay(){
-  if(!state.stream || !cvReady() || !$("#cameraModal").classList.contains('open')) return;
-  const video=$("#camera"), overlay=$("#edgeOverlay"), ctx=overlay.getContext('2d');
-  const w=video.videoWidth,h=video.videoHeight;if(!w||!h)return;
-  const scale=Math.min(1,900/Math.max(w,h));
-  const c=document.createElement('canvas');c.width=Math.round(w*scale);c.height=Math.round(h*scale);c.getContext('2d').drawImage(video,0,0,c.width,c.height);
-  try{
-    const src=cv.imread(c),pts=detectDocument(src,{maxDim:900});src.delete();
-    overlay.width=overlay.clientWidth*devicePixelRatio;overlay.height=overlay.clientHeight*devicePixelRatio;ctx.clearRect(0,0,overlay.width,overlay.height);ctx.save();ctx.scale(overlay.width/c.clientWidth,overlay.height/c.clientHeight);
-    if(pts){ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(p.x*scale,p.y*scale):ctx.moveTo(p.x*scale,p.y*scale));ctx.closePath();ctx.strokeStyle='#53e5a4';ctx.lineWidth=4/Math.max(1,scale);ctx.shadowBlur=10;ctx.shadowColor='#53e5a4';ctx.stroke();}
-    ctx.restore();
-  }catch(e){ /* camera preview must remain usable */ }
-}
-function startLiveDetection(){ clearInterval(state.liveTimer); state.liveTimer=setInterval(drawLiveOverlay,260); }
-function stopLiveDetection(){clearInterval(state.liveTimer);state.liveTimer=null;const c=$("#edgeOverlay");if(c)c.getContext('2d').clearRect(0,0,c.width,c.height);}
-
-async function startCamera(){
-  if(!await waitForOpenCV()) return;
-  try{
-    if(state.stream)stopCamera();
-    state.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});
-    const video=$("#camera"); video.srcObject=state.stream; await video.play(); openModal($("#cameraModal")); startLiveDetection();
-  }catch(e){console.error(e);toast('Kamera tidak bisa dibuka. Pastikan izin kamera aktif dan gunakan HTTPS.');}
-}
-function stopCamera(){stopLiveDetection();if(state.stream){state.stream.getTracks().forEach(t=>t.stop());state.stream=null;}}
-
-function capture(){
-  if(!state.stream)return;
-  const raw=rawCanvasFromVideo();
-  try{
-    const result=prepareImageCanvas(raw);
-    state.pending={raw,processed:result.canvas,points:result.points};
-    stopCamera();
-    closeModal($("#cameraModal"));
-    showPreview(state.pending.processed);
-  }catch(e){console.error(e);toast('Foto gagal diproses. Coba pastikan seluruh kertas terlihat.');}
-}
-function showPreview(canvas){
-  const p=$("#previewCanvas");p.width=canvas.width;p.height=canvas.height;p.getContext('2d').drawImage(canvas,0,0);openModal($("#previewModal"));}
-
-function handleFiles(files){
-  if(!files.length)return;
-  waitForOpenCV().then(async ok=>{
-    if(!ok)return;
-    for(const file of [...files]){
-      if(!file.type.startsWith('image/'))continue;
-      const url=URL.createObjectURL(file),img=new Image();
-      await new Promise((resolve)=>{img.onload=async()=>{try{const c=document.createElement('canvas');c.width=img.naturalWidth;c.height=img.naturalHeight;c.getContext('2d').drawImage(img,0,0);addPage(c);}catch(e){toast('Foto tidak dapat diproses.')}URL.revokeObjectURL(url);resolve();};img.onerror=resolve;img.src=url;});
-    }
-  });
-}
-
-function acceptPending(){
-  if(!state.pending)return;
-  state.pages.push(state.pending);state.pending=null;renderPages();updatePdfState();closeModal($("#previewModal"));toast(`Halaman ${state.pages.length} ditambahkan`);
-}
-function clearPending(){state.pending=null;}
-
+function closeCamera(){clearTimeout(state.raf);cancelAnimationFrame(state.raf);state.stream?.getTracks().forEach(t=>t.stop());state.stream=null;close("#cameraModal")}
+function addPage(mat){const c=matCanvas(mat);state.pages.push({canvas:c});renderPages();$("#pdfBtn").disabled=false}
+function renderPages(){const box=$("#pages");box.innerHTML="";$("#empty").style.display=state.pages.length?"none":"block";state.pages.forEach((p,i)=>{const d=document.createElement("article");d.className="page";const th=document.createElement("div");th.className="thumb";const c=p.canvas.cloneNode(true);c.width=p.canvas.width;c.height=p.canvas.height;th.append(c);const t=document.createElement("span");t.className="tag";t.textContent=`PAGE ${String(i+1).padStart(2,"0")}`;th.append(t);const bar=document.createElement("div");bar.className="pagebar";const up=document.createElement("button");up.textContent="↑";up.disabled=i===0;up.onclick=()=>{[state.pages[i-1],state.pages[i]]=[state.pages[i],state.pages[i-1]];renderPages()};const down=document.createElement("button");down.textContent="↓";down.disabled=i===state.pages.length-1;down.onclick=()=>{[state.pages[i+1],state.pages[i]]=[state.pages[i],state.pages[i+1]];renderPages()};const del=document.createElement("button");del.textContent="Hapus";del.className="danger";del.onclick=()=>{state.pages.splice(i,1);renderPages();$("#pdfBtn").disabled=!state.pages.length};bar.append(up,down,del);d.append(th,bar);box.append(d)})}
+function applyFilter(){if(!state.pendingRaw||!cvReady())return;try{let m=processCanvas(state.pendingRaw.canvas,state.pendingRaw.pts);state.pendingResult?.delete?.();state.pendingResult=m;$("#editCanvas").width=m.cols;$("#editCanvas").height=m.rows;cv.imshow($("#editCanvas"),m)}catch(e){console.error(e);toast("Filter gagal diproses.")}}
+async function fileToPending(file){const im=await loadImage(file),c=canvasFromImage(im,3000);let src=cv.imread(c),pts=detect(src,.10);src.delete();state.pendingRaw={canvas:c,pts};applyFilter();open("#editModal")}
 function exportPDF(){
-  if(!state.pages.length)return;
-  if(!window.jspdf){toast('PDF engine belum siap. Coba lagi sebentar.');return;}
-  const {jsPDF}=window.jspdf; const size=$("#paperSize").value; const dims={a4:[210,297],a5:[148,210],letter:[216,279],legal:[216,356]};
-  let pdf;
-  const first=state.pages[0].processed;
-  if(size==='original'){
-    const pt=0.75; pdf=new jsPDF({orientation:first.width>first.height?'landscape':'portrait',unit:'pt',format:[first.width*pt,first.height*pt]});
-  }else{
-    const cfg=dims[size],land=first.width>first.height; pdf=new jsPDF({orientation:land?'landscape':'portrait',unit:'mm',format:land?[cfg[1],cfg[0]]:cfg});
-  }
-  state.pages.forEach((p,i)=>{
-    if(i){
-      if(size==='original'){
-        const pt=.75; pdf.addPage([p.processed.width*pt,p.processed.height*pt],p.processed.width>p.processed.height?'landscape':'portrait');
-      }else{
-        const cfg=dims[size],land=p.processed.width>p.processed.height;pdf.addPage(land?[cfg[1],cfg[0]]:cfg,land?'landscape':'portrait');
-      }
-    }
-    const pw=pdf.internal.pageSize.getWidth(),ph=pdf.internal.pageSize.getHeight();
-    const margin=size==='original'?0:5,iw=pw-margin*2,ih=ph-margin*2,ratio=Math.min(iw/p.processed.width,ih/p.processed.height),w=p.processed.width*ratio,h=p.processed.height*ratio;
-    pdf.addImage(p.processed.toDataURL('image/jpeg',.94),'JPEG',(pw-w)/2,(ph-h)/2,w,h,undefined,'FAST');
-  });
-  pdf.save(`VAYTES-Document-Scanner-${new Date().toISOString().slice(0,10)}.pdf`);toast('PDF berhasil dibuat.');
+  if(!state.pages.length)return;const {jsPDF}=window.jspdf,size=$("#paper").value;const mm={a4:[210,297],a5:[148,210],letter:[216,279],legal:[216,356]};
+  let pdf;if(size==="original"){const p=state.pages[0].canvas;pdf=new jsPDF({unit:"px",format:[p.width,p.height],orientation:p.width>p.height?"landscape":"portrait"});}else pdf=new jsPDF({unit:"mm",format:mm[size],orientation:"portrait",compress:true});
+  state.pages.forEach((p,i)=>{if(i)pdf.addPage(size==="original"?[p.canvas.width,p.canvas.height]:mm[size],"portrait");const pw=pdf.internal.pageSize.getWidth(),ph=pdf.internal.pageSize.getHeight();let x=0,y=0,w=pw,h=ph;if(size==="original"){w=p.canvas.width;h=p.canvas.height}else{const r=Math.min(pw/p.canvas.width,ph/p.canvas.height);w=p.canvas.width*r;h=p.canvas.height*r;x=(pw-w)/2;y=(ph-h)/2}pdf.addImage(p.canvas.toDataURL("image/jpeg",.97),"JPEG",x,y,w,h,undefined,"FAST")});
+  pdf.save(`VAYTES-Document-${new Date().toISOString().slice(0,10)}.pdf`);toast("PDF berhasil dibuat.");
 }
-
-window.addEventListener('DOMContentLoaded',async()=>{
-  await waitForOpenCV();
-  $("#startBtn").onclick=startCamera; $("#emptyStartBtn").onclick=startCamera; $("#addBtn").onclick=startCamera;
-  $("#captureBtn").onclick=()=>{capture();};
-  $("#closeCamera").onclick=()=>{stopCamera();closeModal($("#cameraModal"));};
-  $("#closePreview").onclick=()=>{clearPending();closeModal($("#previewModal"));};
-  $("#retakeBtn").onclick=()=>{clearPending();closeModal($("#previewModal"));startCamera();};
-  $("#acceptBtn").onclick=acceptPending;
-  $("#fileInput").onchange=e=>handleFiles(e.target.files);
+window.addEventListener("load",()=>{
+  const wait=()=>{if(cvReady()){setEngine(true,"Scanner READY")}else setTimeout(wait,300)};wait();
+  $("#startBtn").onclick=openCamera;$("#emptyScan").onclick=openCamera;$("#addBtn").onclick=openCamera;
+  $("#closeCam").onclick=closeCamera;$("#shutter").onclick=()=>{captureFrame();closeCamera()};
+  $("#closeEdit").onclick=()=>{state.pendingResult?.delete?.();state.pendingResult=null;close("#editModal")};
+  $("#retake").onclick=()=>{state.pendingResult?.delete?.();state.pendingResult=null;close("#editModal");openCamera()};
+  $("#usePage").onclick=()=>{if(state.pendingResult){addPage(state.pendingResult);state.pendingResult.delete();state.pendingResult=null}close("#editModal")};
   $("#pdfBtn").onclick=exportPDF;
-  $("#enhanceMode").onchange=reprocessAll;
-  $("#paperSize").onchange=reprocessAll;
-  $("#detectMode").onchange=reprocessAll;
-  window.addEventListener('beforeunload',stopCamera);
+  $("#fileInput").onchange=e=>[...e.target.files].forEach(file=>fileToPending(file));
+  $("#filterButtons").onclick=e=>{if(e.target.dataset.f){document.querySelectorAll("#filterButtons button").forEach(b=>b.classList.remove("active"));e.target.classList.add("active");$("#filter").value=e.target.dataset.f;applyFilter()}};
+  $("#filter").onchange=applyFilter;
+  $("#rotateLeft").onclick=()=>rotatePending(-90);$("#rotateRight").onclick=()=>rotatePending(90);
+  $("#reDetect").onclick=()=>{if(state.pendingRaw){const src=cv.imread(state.pendingRaw.canvas);state.pendingRaw.pts=detect(src,.08);src.delete();applyFilter()}};
 });
+function rotatePending(deg){if(!state.pendingRaw)return;const src=cv.imread(state.pendingRaw.canvas),r=rotateMat(src,deg);src.delete();state.pendingRaw.canvas=matCanvas(r);r.delete();applyFilter()}

@@ -1,29 +1,31 @@
-# VAYTES DOCUMENT SCANNER v1.2
+# VAYTES DOCUMENT SCANNER v2.0
 
-A client-side document scanner designed for phones, tablets, and desktop browsers. No backend or document storage is required.
+A browser-based document scanner inspired by the workflow of modern mobile scanners.
 
-## What changed in v1.2
-- Live document-edge detection with a green outline while aiming the camera.
-- Uses outer contours to avoid accidentally detecting text boxes as the paper.
-- Conservative perspective correction: if a document cannot be detected confidently, the full photo is kept instead of aggressively cropping it.
-- Adds a small white safety border after perspective correction so content near the edge is not cut.
-- Normalizes every processed page to the selected paper size with consistent margins and straight orientation.
-- Preview now displays the actual processed result before acceptance.
-- Enhancement modes now affect both preview and exported PDF.
-- Changing paper size / enhancement / detection mode reprocesses existing pages.
-- Multi-page PDF export uses the processed pages, not the original camera photos.
+## Pipeline
+1. Rear-camera capture
+2. Live document-edge detection overlay
+3. Four-corner perspective correction
+4. Conservative safe margin (prevents content clipping)
+5. Illumination normalization / local contrast
+6. Smart / Color / Grayscale / B&W / Original modes
+7. Paper-size normalization without cropping
+8. Preview of the actual processed result
+9. Multi-page ordering
+10. Client-side PDF export
 
-## Best scanning practice
-1. Put the paper on a contrasting, flat surface.
-2. Use even lighting and avoid hard shadows.
-3. Keep all four corners visible.
-4. Hold the camera as parallel to the paper as possible.
-5. Wait for the green outline, then capture.
+## Deploy
+Upload the repository contents to GitHub and enable GitHub Pages from the main branch / root.
 
-## GitHub Pages
-Upload the contents of this folder to a GitHub repository and enable Settings → Pages → Deploy from branch → main / root.
+Camera access requires HTTPS or localhost.
 
-The app uses OpenCV.js and jsPDF from public CDNs, so the first page load requires internet access. Image processing itself happens locally in the browser.
+## Privacy / cost
+No backend, database, login, or upload endpoint is used. Images are processed in the browser.
 
-## Important limitation
-No browser-only algorithm can recover detail that was never captured by the camera. The goal of this version is to preserve the complete document, correct perspective, standardize page framing, and improve readability without destructive cropping.
+OpenCV.js and jsPDF are loaded from public CDNs. If you want the repository to work completely offline, vendor those libraries into the repository later.
+
+## Important
+This is a browser implementation, so image quality is constrained by the camera image supplied by the device/browser. The pipeline deliberately avoids aggressive enlargement/cropping because that can destroy document content.
+
+## Scanner behavior
+The live camera uses a contour-based document detector to draw a four-corner guide. Capture processing uses the detected quadrilateral, perspective correction, conservative margins, illumination normalization, CLAHE/local contrast, sharpening, grayscale/adaptive B&W, and non-cropping paper normalization. The preview is rendered from the processed image that is later exported to PDF.
